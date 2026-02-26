@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { X, Save, Trash2, Activity, Package, Bot, ClipboardList, AlertTriangle } from 'lucide-react';
 import { useMissionControl } from '@/lib/store';
 import { triggerAutoDispatch, shouldTriggerAutoDispatch } from '@/lib/auto-dispatch';
@@ -40,6 +40,15 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
     assigned_agent_id: task?.assigned_agent_id || '',
     due_date: task?.due_date || '',
   });
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const el = descriptionRef.current;
+    if (!el) return;
+
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
+  }, [form.description, activeTab]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -221,10 +230,11 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
           <div>
             <label className="block text-sm font-medium mb-1">Description</label>
             <textarea
+              ref={descriptionRef}
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              rows={3}
-              className="w-full bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent resize-none"
+              rows={4}
+              className="w-full bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent resize-y min-h-[112px] max-h-[320px]"
               placeholder="Add details..."
             />
           </div>
