@@ -8,7 +8,61 @@ import { getCoreTeamNames, isCoreTeamLockEnabled } from '@/lib/config';
 export async function GET(request: NextRequest) {
   try {
     const workspaceId = request.nextUrl.searchParams.get('workspace_id');
-    
+
+    // Reconcile agent working/standby statuses from actual active task assignments.
+    // This heals stale status badges if an earlier transition failed.
+    if (workspaceId) {
+      run(
+        `UPDATE agents
+         SET status = 'working', updated_at = ?
+         WHERE workspace_id = ?
+           AND status != 'offline'
+           AND EXISTS (
+             SELECT 1 FROM tasks t
+             WHERE t.assigned_agent_id = agents.id
+               AND t.status IN ('assigned', 'in_progress', 'testing', 'review')
+           )`,
+        [new Date().toISOString(), workspaceId]
+      );
+
+      run(
+        `UPDATE agents
+         SET status = 'standby', updated_at = ?
+         WHERE workspace_id = ?
+           AND status != 'offline'
+           AND NOT EXISTS (
+             SELECT 1 FROM tasks t
+             WHERE t.assigned_agent_id = agents.id
+               AND t.status IN ('assigned', 'in_progress', 'testing', 'review')
+           )`,
+        [new Date().toISOString(), workspaceId]
+      );
+    } else {
+      run(
+        `UPDATE agents
+         SET status = 'working', updated_at = ?
+         WHERE status != 'offline'
+           AND EXISTS (
+             SELECT 1 FROM tasks t
+             WHERE t.assigned_agent_id = agents.id
+               AND t.status IN ('assigned', 'in_progress', 'testing', 'review')
+           )`,
+        [new Date().toISOString()]
+      );
+
+      run(
+        `UPDATE agents
+         SET status = 'standby', updated_at = ?
+         WHERE status != 'offline'
+           AND NOT EXISTS (
+             SELECT 1 FROM tasks t
+             WHERE t.assigned_agent_id = agents.id
+               AND t.status IN ('assigned', 'in_progress', 'testing', 'review')
+           )`,
+        [new Date().toISOString()]
+      );
+    }
+
     let agents: Agent[];
     if (workspaceId) {
       agents = queryAll<Agent>(`
