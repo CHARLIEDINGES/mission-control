@@ -104,6 +104,18 @@ export async function POST(
     });
   } catch (error) {
     console.error('PDF generation failed:', error);
-    return NextResponse.json({ error: 'Failed to generate PDF' }, { status: 500 });
+    const details = error instanceof Error ? error.message : String(error);
+
+    if (details.includes('error while loading shared libraries')) {
+      return NextResponse.json(
+        {
+          error: 'Failed to generate PDF: missing system libraries for Chromium',
+          details: 'Install Playwright Linux dependencies on the host, then retry. Example: `npx playwright install-deps chromium` (requires sudo).',
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ error: 'Failed to generate PDF', details }, { status: 500 });
   }
 }

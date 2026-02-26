@@ -116,7 +116,8 @@ export function DeliverablesList({ taskId }: DeliverablesListProps) {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to generate PDF');
+        const details = data?.details ? `\n\nDetails: ${data.details}` : '';
+        throw new Error((data.error || 'Failed to generate PDF') + details);
       }
 
       await loadDeliverables();
