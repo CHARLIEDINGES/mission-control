@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
-import { queryOne, run, queryAll } from '@/lib/db';
+import { queryOne, run } from '@/lib/db';
 import { broadcast } from '@/lib/events';
 import { getMissionControlUrl } from '@/lib/config';
 import { UpdateTaskSchema } from '@/lib/validation';
-import type { Task, UpdateTaskRequest, Agent, TaskDeliverable } from '@/lib/types';
+import type { Task, UpdateTaskRequest, Agent } from '@/lib/types';
 
 // GET /api/tasks/[id] - Get a single task
 export async function GET(
@@ -151,36 +151,56 @@ export async function PATCH(
 
     run(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`, values);
 
-    // If task was moved to done, release assigned agent back to standby
-    // only when they have no other active tasks.
-    if (validatedData.status === 'done' && existing.assigned_agent_id) {
-      const activeTaskCount = queryOne<{ count: number }>(
-        `SELECT COUNT(*) as count
-         FROM tasks
-         WHERE assigned_agent_id = ?
-           AND id != ?
-           AND status IN ('assigned', 'in_progress', 'testing', 'review')`,
-        [existing.assigned_agent_id, id]
-      )?.count || 0;
+    // Keep agent statuses in sync whenever task status/assignment changes.
+    // This ensures agents return to standby when tasks are completed or unassigned,
+    // and stay working if they still have active tasks.
+    const assignmentChanged = validatedData.assigned_agent_id !== undefined && validatedData.assigned_agent_id !== existing.assigned_agent_id;
+    const statusChanged = validatedData.status !== undefined && validatedData.status !== existing.status;
 
-      if (activeTaskCount === 0) {
-        run(
-          `UPDATE agents SET status = ?, updated_at = ? WHERE id = ?`,
-          ['standby', now, existing.assigned_agent_id]
-        );
+    if (assignmentChanged || statusChanged) {
+      const affectedAgentIds = new Set<string>();
+      if (existing.assigned_agent_id) affectedAgentIds.add(existing.assigned_agent_id);
+      if (validatedData.assigned_agent_id) affectedAgentIds.add(validatedData.assigned_agent_id);
 
-        run(
-          `INSERT INTO events (id, type, agent_id, task_id, message, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [
-            uuidv4(),
-            'status_changed',
-            existing.assigned_agent_id,
-            id,
-            'Agent set to standby after task moved to done',
-            now,
-          ]
+      for (const agentId of affectedAgentIds) {
+        const agent = queryOne<{ id: string; name: string; status: string }>(
+          'SELECT id, name, status FROM agents WHERE id = ?',
+          [agentId]
         );
+        if (!agent) continue;
+
+        // Don't auto-overwrite explicit offline state.
+        if (agent.status === 'offline') continue;
+
+        const activeTaskCount = queryOne<{ count: number }>(
+          `SELECT COUNT(*) as count
+           FROM tasks
+           WHERE assigned_agent_id = ?
+             AND status IN ('assigned', 'in_progress', 'testing', 'review')`,
+          [agentId]
+        )?.count || 0;
+
+        const desiredStatus = activeTaskCount > 0 ? 'working' : 'standby';
+
+        if (agent.status !== desiredStatus) {
+          run(
+            `UPDATE agents SET status = ?, updated_at = ? WHERE id = ?`,
+            [desiredStatus, now, agentId]
+          );
+
+          run(
+            `INSERT INTO events (id, type, agent_id, task_id, message, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+              uuidv4(),
+              'status_changed',
+              agentId,
+              id,
+              `${agent.name} set to ${desiredStatus} via task sync`,
+              now,
+            ]
+          );
+        }
       }
     }
 
