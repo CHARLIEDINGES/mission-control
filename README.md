@@ -114,10 +114,21 @@ OPENCLAW_GATEWAY_TOKEN=your-token-here
 openclaw gateway start
 
 # Start Mission Control
-npm run dev
+npm run dev -- -H 0.0.0.0 -p 4000
 ```
 
 Open **http://localhost:4000** — you're in! 🎉
+
+### Optional: Enable HTML → PDF generation for deliverables
+
+The `Generate PDF` action uses Playwright Chromium. On a fresh Linux host, run:
+
+```bash
+npx playwright install chromium
+sudo npx playwright install-deps chromium
+```
+
+If system libs are missing, Mission Control now returns an actionable API error with install guidance.
 
 ### Production
 
@@ -337,6 +348,18 @@ mission-control/
 </details>
 
 <details>
+<summary><strong>Generate PDF fails for HTML deliverables</strong></summary>
+
+If you see `Failed to generate PDF` or missing Chromium shared library errors, install Playwright runtime deps:
+
+```bash
+cd mission-control
+npx playwright install chromium
+sudo npx playwright install-deps chromium
+```
+</details>
+
+<details>
 <summary><strong>Port 4000 already in use</strong></summary>
 
 ```bash
@@ -344,6 +367,41 @@ lsof -i :4000
 kill -9 <PID>
 ```
 </details>
+
+<details>
+<summary><strong>Production build notes</strong></summary>
+
+Mission Control currently runs best in local/dev mode while production hardening continues.
+If you build for production, you may still see known dynamic-route warnings depending on your environment.
+
+Recommended local run command:
+
+```bash
+npm run dev -- -H 0.0.0.0 -p 4000
+```
+</details>
+
+---
+
+## 🚢 Share with Friends (GitHub-ready)
+
+Before publishing your fork, do this quick checklist:
+
+1. Keep secrets out of git
+   - Real tokens belong in `.env.local` only
+   - `.env.example` should contain placeholders only
+2. Verify install from scratch
+   - `npm install`
+   - `cp .env.example .env.local`
+   - `npm run dev -- -H 0.0.0.0 -p 4000`
+3. Validate quality gates
+   - `npm run lint`
+   - `npm run build`
+4. Push to GitHub
+
+```bash
+git push -u origin main
+```
 
 ---
 
