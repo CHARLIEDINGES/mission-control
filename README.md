@@ -88,7 +88,7 @@
 
 ```bash
 # Clone
-git clone https://github.com/crshdn/mission-control.git
+git clone https://github.com/CHARLIEDINGES/mission-control.git
 cd mission-control
 
 # Install dependencies
