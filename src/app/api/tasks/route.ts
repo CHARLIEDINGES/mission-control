@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { queryAll, queryOne, run } from '@/lib/db';
 import { broadcast } from '@/lib/events';
+import { getMissionControlUrl } from '@/lib/config';
 import { CreateTaskSchema } from '@/lib/validation';
 import type { Task, CreateTaskRequest, Agent } from '@/lib/types';
 
@@ -95,7 +96,11 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     const workspaceId = validatedData.workspace_id || 'default';
-    const status = validatedData.status || 'inbox';
+    const requestedStatus = validatedData.status || 'inbox';
+    const hasAssignee = !!validatedData.assigned_agent_id;
+
+    // Auto-advance inbox tasks to assigned when an assignee is present
+    const status = (requestedStatus === 'inbox' && hasAssignee) ? 'assigned' : requestedStatus;
     
     run(
       `INSERT INTO tasks (id, title, description, status, priority, assigned_agent_id, created_by_agent_id, workspace_id, business_id, due_date, created_at, updated_at)
@@ -131,6 +136,14 @@ export async function POST(request: NextRequest) {
       [uuidv4(), 'task_created', body.created_by_agent_id || null, id, eventMessage, now]
     );
 
+    if (requestedStatus === 'inbox' && hasAssignee) {
+      run(
+        `INSERT INTO events (id, type, task_id, message, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [uuidv4(), 'task_status_changed', id, `Task "${validatedData.title}" auto-moved to assigned after assignment`, now]
+      );
+    }
+
     // Fetch created task with all joined fields
     const task = queryOne<Task>(
       `SELECT t.*,
@@ -150,6 +163,22 @@ export async function POST(request: NextRequest) {
       broadcast({
         type: 'task_created',
         payload: task,
+      });
+    }
+
+    // Auto-dispatch newly created assigned tasks
+    if (hasAssignee && status === 'assigned') {
+      const missionControlUrl = getMissionControlUrl();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (process.env.MC_API_TOKEN) {
+        headers.Authorization = `Bearer ${process.env.MC_API_TOKEN}`;
+      }
+
+      fetch(`${missionControlUrl}/api/tasks/${id}/dispatch`, {
+        method: 'POST',
+        headers,
+      }).catch((err) => {
+        console.error('Auto-dispatch failed for newly created task:', err);
       });
     }
     
