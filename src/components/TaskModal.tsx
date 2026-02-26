@@ -25,6 +25,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
   const [followUpQuestion, setFollowUpQuestion] = useState('');
   const [followUpNotice, setFollowUpNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [agentFlow, setAgentFlow] = useState<Array<{ id: string; name: string; avatar_emoji?: string }>>([]);
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [usePlanningMode, setUsePlanningMode] = useState(false);
   // Auto-switch to planning tab if task is in planning status
@@ -52,6 +53,47 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
   }, [form.description, activeTab]);
+
+  useEffect(() => {
+    const loadAgentFlow = async () => {
+      if (!task) return;
+
+      try {
+        const res = await fetch(`/api/tasks/${task.id}/activities`);
+        if (!res.ok) return;
+
+        const activities = await res.json();
+        const seen = new Set<string>();
+        const flow: Array<{ id: string; name: string; avatar_emoji?: string }> = [];
+
+        for (const activity of activities) {
+          if (!activity.agent_id || !activity.agent?.name) continue;
+          if (seen.has(activity.agent_id)) continue;
+          seen.add(activity.agent_id);
+          flow.push({
+            id: activity.agent_id,
+            name: activity.agent.name,
+            avatar_emoji: activity.agent.avatar_emoji,
+          });
+        }
+
+        // Ensure current assignee is present even if no activity logged yet
+        if (task.assigned_agent_id && task.assigned_agent?.name && !seen.has(task.assigned_agent_id)) {
+          flow.unshift({
+            id: task.assigned_agent_id,
+            name: task.assigned_agent.name,
+            avatar_emoji: task.assigned_agent.avatar_emoji,
+          });
+        }
+
+        setAgentFlow(flow);
+      } catch (error) {
+        console.error('Failed to load task agent flow:', error);
+      }
+    };
+
+    loadAgentFlow();
+  }, [task]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -264,6 +306,27 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
                 {tab.label}
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Agent flow strip */}
+        {task && (
+          <div className="mx-4 mt-3 p-2 border border-mc-border rounded-md bg-mc-bg text-xs">
+            <div className="text-mc-text-secondary mb-2 uppercase tracking-wide">Agent flow</div>
+            {agentFlow.length === 0 ? (
+              <div className="text-mc-text-secondary">No agent activity yet</div>
+            ) : (
+              <div className="flex items-center flex-wrap gap-2">
+                {agentFlow.map((agent, idx) => (
+                  <div key={agent.id} className="flex items-center gap-2">
+                    {idx > 0 && <span className="text-mc-text-secondary">→</span>}
+                    <span className="px-2 py-1 rounded bg-mc-bg-tertiary border border-mc-border text-mc-text">
+                      {agent.avatar_emoji || '🤖'} {agent.name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
